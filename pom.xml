@@ -11,6 +11,7 @@
 		<kafka.version>0.10.2.0</kafka.version>
 		<paho.version>1.1.0</paho.version>
 		<gjson.version>1.1.1</gjson.version>
+		<jersey.version>1.19.3</jersey.version>
 	</properties>
 	
 	<dependencies>
@@ -19,7 +20,19 @@
 			<artifactId>kafka-clients</artifactId>
 			<version>${kafka.version}</version>
 		</dependency>
-
+		
+		<dependency>
+		    <groupId>com.sun.jersey</groupId>
+		    <artifactId>jersey-client</artifactId>
+		    <version>${jersey.version}</version>
+		</dependency>
+		
+		<dependency>
+			<groupId>com.sun.jersey.contribs</groupId>
+			<artifactId>jersey-apache-client4</artifactId>
+			<version>${jersey.version}</version>			
+		</dependency>
+		
 		<dependency>
 			<groupId>com.googlecode.json-simple</groupId>
 			<artifactId>json-simple</artifactId>

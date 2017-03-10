@@ -52,12 +52,13 @@ public class GroupConsumer implements Runnable {
 		props.put("group.id", groupId);
 		
 		props.put("enable.auto.commit", "true");
-		props.put("auto.commit.interval.ms", "2000");
+		props.put("auto.commit.interval.ms", "2500");
+		props.put("max.poll.records", "250");
 		
 		props.put("session.timeout.ms", "20000");
-		props.put("fetch.min.bytes", "2048");
-		props.put("fetch.wait.max.ms", "128");		
-		props.put("max.partition.fetch.bytes", 4 * 65536 + "");
+		props.put("fetch.min.bytes", "64");
+		props.put("fetch.wait.max.ms", "96");		
+		props.put("max.partition.fetch.bytes", "65565");
 		
 		props.put("key.deserializer", "org.apache.kafka.common.serialization.ByteArrayDeserializer");
 		props.put("value.deserializer", "org.apache.kafka.common.serialization.ByteArrayDeserializer");
@@ -187,7 +188,7 @@ public class GroupConsumer implements Runnable {
 		try {
 			
 			while (isAlive.get()) {			
-				ConsumerRecords<byte[], byte[]> records = consumer.poll(256);
+				ConsumerRecords<byte[], byte[]> records = consumer.poll(100);
 				if (records.count() == 0) continue;
 				
 				for (ConsumerRecord<byte[], byte[]> record : records) {							

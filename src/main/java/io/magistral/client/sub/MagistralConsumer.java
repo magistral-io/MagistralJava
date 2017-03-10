@@ -1,7 +1,6 @@
 package io.magistral.client.sub;
 
 import java.io.File;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 import javax.crypto.Cipher;
@@ -28,9 +27,11 @@ public class MagistralConsumer {
 		
 		props = new Properties();
 		props.put("enable.auto.commit", "false");
-		props.put("session.timeout.ms", "30000");
-		props.put("fetch.min.bytes", "65536");
-		props.put("max.partition.fetch.bytes", "1048576");
+		props.put("session.timeout.ms", "15000");
+		
+		props.put("fetch.min.bytes", "64");
+		props.put("max.partition.fetch.bytes", "65565");
+		props.put("fetch.max.wait.ms", "96");
 		props.put("key.deserializer", "org.apache.kafka.common.serialization.ByteArrayDeserializer");
 		props.put("value.deserializer", "org.apache.kafka.common.serialization.ByteArrayDeserializer");
 		
@@ -60,48 +61,39 @@ public class MagistralConsumer {
 			if (records > HISTORY_DATA_FETCH_SIZE_LIMIT) records = HISTORY_DATA_FETCH_SIZE_LIMIT;
 			
 			List<Message> out = new ArrayList<>(records);
-			
-			String kfkTopic = subKey + "." + topic;
-			
-			TopicPartition x = new TopicPartition(kfkTopic, channel);
-			
-			List<TopicPartition> tpL = Arrays.asList(x);
-			
-			props.put("fetch.min.bytes", "4096");
-			props.setProperty("max.partition.fetch.bytes", records * 65536 + "");
-			consumer = new KafkaConsumer<>(props);
-			consumer.assign(tpL);
 						
-			long offset = consumer.position(x);
+			TopicPartition x = new TopicPartition(subKey + "." + topic, channel);
 			
-			consumer.seek(x, offset > records ? offset - records : 0);
-			ConsumerRecords<byte[], byte[]> data = consumer.poll(5000);
+			props.put("fetch.min.bytes", "64");	
+			props.put("fetch.max.wait.ms", "192");	
 			
-			for (ConsumerRecord<byte[], byte[]> r : data) {			    
-				Message msg = new Message();
-				msg.setTopic(topic);
-				msg.setChannel(channel);
-								
-				byte[] body = r.value();
-				
-				if (cipher != null) {
-					byte[] encrypted = Base64.getDecoder().decode(body);    			
-					msg.setBody(cipher.doFinal(encrypted));
-				} else {
-					msg.setBody(body);
-				}
-				
-				msg.setBody((cipher == null) ? body : cipher.doFinal(body));
+			consumer = new KafkaConsumer<>(props);			
+			consumer.assign(Arrays.asList(x));
+			
+			Map<TopicPartition, Long> offsets = consumer.endOffsets(consumer.assignment());			
+			
+			long last = offsets.get(x);			
+			long pos = (last - records < 0) ? 0 : (last - records);
+			
+			consumer.seek(x, pos);
+			ConsumerRecords<byte[], byte[]> data = consumer.poll(200);
+			
+			spitz : while (!data.isEmpty() && out.size() < records) {
+				for (ConsumerRecord<byte[], byte[]> r : data) {	
 					
-				byte[] b = r.key();		
-				String key = new String(b, StandardCharsets.UTF_8);
-				
-				if (key.matches("\\d+")) {
-					msg.setTimestamp(Long.parseLong(key));
-				} else {
-					msg.setTimestamp(0);
+					if (out.size() >= records) break spitz;
+					
+					Message m = new Message();
+					m.setTopic(topic);
+					m.setIndex(r.offset());
+					m.setChannel(r.partition());
+					m.setTimestamp(r.timestamp());	
+					m.setBody(cipher != null ? cipher.doFinal(Base64.getDecoder().decode(r.value())) : r.value());
+					
+					out.add(m);
 				}
-				out.add(msg);
+				
+				data = consumer.poll(200);
 			}
 			
 			return out;
@@ -121,76 +113,64 @@ public class MagistralConsumer {
 			
 			List<Message> out = new ArrayList<>(count);
 			
-			String kfkTopic = subKey + "." + topic;
+			TopicPartition x = new TopicPartition(subKey + "." + topic, channel);
+						
+			props.put("fetch.min.bytes", "64");
+			props.put("fetch.max.wait.ms", "192");
 			
-			TopicPartition x = new TopicPartition(kfkTopic, channel);
+			props.put("max.partition.fetch.bytes", "65565"); // TODO adjust with AVGs
 			
-			List<TopicPartition> tpL = Arrays.asList(x);
-			
-			props.put("fetch.min.bytes", "16384");
-			props.put("max.partition.fetch.bytes", "16384"); // TODO adjust with AVGs
 			consumer = new KafkaConsumer<>(props);
-			consumer.assign(tpL);
+			consumer.assign(Arrays.asList(x));
 			
 			boolean found = false;
-			long position = consumer.position(x) - count;
 			
-			while (!found) {
+			Map<TopicPartition, Long> offsets = consumer.endOffsets(consumer.assignment());			
+			long last = offsets.get(x);
+			
+			long position = last - count < 0 ? 0 : last - count;
+			
+			while (!found) {				
 				consumer.seek(x, position);
-				ConsumerRecords<byte[], byte[]> data = consumer.poll(2000);
+				ConsumerRecords<byte[], byte[]> data = consumer.poll(200);
 				
 				if (data.count() == 0) break;
 				ConsumerRecord<byte[], byte[]> r = data.iterator().next();
 				
-				byte[] b = r.key();		
-				String key = new String(b, StandardCharsets.UTF_8);
-
-				if (Long.parseLong(key) < start) found = true;
-				
-				position = position - count;
+				if (r.timestamp() <= start) {
+					position = r.offset(); found = true;				
+				}
+				if (position == 0) break;
 			}
+
 			consumer.close();
 			
-			props.put("fetch.min.bytes", "65536");
-			props.put("max.partition.fetch.bytes", 65536 * count);
 			consumer = new KafkaConsumer<>(props);
-			consumer.assign(tpL);
+			consumer.assign(Arrays.asList(x));
 			
 			consumer.seek(x, position);
 			
-			ConsumerRecords<byte[], byte[]> data = consumer.poll(10000);
-			
 			int counter = 0;
-			for (ConsumerRecord<byte[], byte[]> r : data) {				
-				if (counter == count) return out;
+			
+			ConsumerRecords<byte[], byte[]> data = consumer.poll(200);
+			spitz : while (!data.isEmpty() && counter < count) {
 				
-				byte[] b = r.key();		
-				String key = new String(b, StandardCharsets.UTF_8);
-				
-				long timestamp = Long.parseLong(key);
-				if (timestamp < start) continue;
-				
-				Message msg = new Message();
-				msg.setTopic(topic);
-				msg.setChannel(channel);
-				
-				if (key.matches("\\d+")) {
-					msg.setTimestamp(timestamp);
-				} else {
-					msg.setTimestamp(0);
-				}
-											
-				byte[] body = r.value();
-				
-				if (cipher != null) {
-					byte[] encrypted = Base64.getDecoder().decode(body);    			
-					msg.setBody(cipher.doFinal(encrypted));
-				} else {
-					msg.setBody(body);
+				for (ConsumerRecord<byte[], byte[]> r : data) {
+					
+					if (r.timestamp() <= start) continue;
+					if (out.size() >= counter) break spitz;
+					
+					Message m = new Message();
+					m.setTopic(topic);
+					m.setIndex(r.offset());
+					m.setChannel(r.partition());
+					m.setTimestamp(r.timestamp());					
+					m.setBody(cipher != null ? cipher.doFinal(Base64.getDecoder().decode(r.value())) : r.value());					
+					out.add(m);				
+					counter++;
 				}
 				
-				out.add(msg);				
-				counter++;
+				data = consumer.poll(200);
 			}
 			
 			return out;
@@ -206,79 +186,66 @@ public class MagistralConsumer {
 		
 		KafkaConsumer<byte[], byte[]> consumer = null;
 		try {			
+			
 			List<Message> out = new ArrayList<>();
 			
-			String kfkTopic = subKey + "." + topic;
+			TopicPartition x = new TopicPartition(subKey + "." + topic, channel);
+						
+			props.put("fetch.min.bytes", "64");
+			props.put("fetch.max.wait.ms", "192");			
+			props.put("max.partition.fetch.bytes", "65565");
 			
-			TopicPartition x = new TopicPartition(kfkTopic, channel);
-			
-			List<TopicPartition> tpL = Arrays.asList(x);
-			
-			props.put("fetch.min.bytes", "16384");
-			props.put("max.partition.fetch.bytes", "16384"); // TODO adjust with AVGs
 			consumer = new KafkaConsumer<>(props);
-			consumer.assign(tpL);
+			consumer.assign(Arrays.asList(x));
 			
 			boolean found = false;
-			long position = consumer.position(x) - 2000;
+			int hop = 1000;
+			
+			Map<TopicPartition, Long> offsets = consumer.endOffsets(consumer.assignment());			
+			long last = offsets.get(x);
+			
+			long position = last - hop < 0 ? 0 : last - hop;
 			
 			while (!found) {
 				consumer.seek(x, position);
-				ConsumerRecords<byte[], byte[]> data = consumer.poll(5000);
+				ConsumerRecords<byte[], byte[]> data = consumer.poll(200);
 				
 				if (data.count() == 0) break;
 				ConsumerRecord<byte[], byte[]> r = data.iterator().next();
+			
+				if (r.timestamp() < start) {
+					position = r.offset(); found = true;
+				}
 				
-				byte[] b = r.key();		
-				String key = new String(b, StandardCharsets.UTF_8);
-
-				if (Long.parseLong(key) < start) found = true;
-				
-				position = position - 2000;
+				if (position == 0) break;				
+				position =- hop;
 			}
 			consumer.close();
 			
-			props.put("fetch.min.bytes", "65536");
-			props.put("max.partition.fetch.bytes", 65536 * 20000);
+			
 			consumer = new KafkaConsumer<>(props);
-			consumer.assign(tpL);
+			consumer.assign(Arrays.asList(x));
 			
 			consumer.seek(x, position);
 			
-			ConsumerRecords<byte[], byte[]> data = consumer.poll(20000);
-						
-			for (ConsumerRecord<byte[], byte[]> r : data) {
+			ConsumerRecords<byte[], byte[]> data = consumer.poll(200);						
+			spitz : while (!data.isEmpty()) {
 				
-				byte[] b = r.key();		
-				String key = new String(b, StandardCharsets.UTF_8);
-				
-				long timestamp = Long.parseLong(key);
-				if (timestamp < start) continue;
-				
-				Message msg = new Message();
-				msg.setTopic(topic);
-				msg.setChannel(channel);
-				
-				if (key.matches("\\d+")) {
-					msg.setTimestamp(timestamp);
-				} else {
-					msg.setTimestamp(0);
+				for (ConsumerRecord<byte[], byte[]> r : data) {
+					
+					if (r.timestamp() <= start) continue;
+					if (r.timestamp() >= end || out.size() == HISTORY_DATA_FETCH_SIZE_LIMIT) break spitz;
+					
+					Message m = new Message();
+					m.setTopic(topic);
+					m.setIndex(r.offset());
+					m.setChannel(r.partition());
+					m.setTimestamp(r.timestamp());					
+					m.setBody(cipher != null ? cipher.doFinal(Base64.getDecoder().decode(r.value())) : r.value());
+					out.add(m);
 				}
 				
-//				System.out.println(new Date(timestamp));
-				
-				if (timestamp > end) break;
-											
-				byte[] body = r.value();
-				
-				if (cipher != null) {
-					byte[] encrypted = Base64.getDecoder().decode(body);    			
-					msg.setBody(cipher.doFinal(encrypted));
-				} else {
-					msg.setBody(body);
-				}
-				
-				out.add(msg);
+				data = consumer.poll(200);
 			}
 			
 			return out;

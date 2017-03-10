@@ -6,6 +6,7 @@ import java.io.Serializable;
 public class Message implements Serializable {
 	
 	private String topic;
+	private long index;
 	private int channel;
 	private long timestamp;
 	private byte[] body;
@@ -38,5 +39,12 @@ public class Message implements Serializable {
 	}
 	public void setBody(byte[] body) {
 		this.body = body;
+	}
+
+	public long getIndex() {
+		return index;
+	}
+	public void setIndex(long index) {
+		this.index = index;
 	}
 }
