@@ -126,7 +126,7 @@ int channel = 0
 
 m.publish(topic, channel, (message).getBytes(StandardCharsets.UTF_8), new Callback() {
 								
-	public void success(PubMeta meta) {
+	public void success(PubMeta ack) {
 //		System.out.println("✔︎ Published to " + ack.topic() + ":" + ack.channel());
 	}
 								
@@ -246,14 +246,16 @@ m.permissions(new io.magistral.client.perm.Callback() {
 
 Or if you are interested to get permissions for some specific topic:
 
-```swift
+```java
 m.permissions("topic", new io.magistral.client.perm.Callback() {	
 			
 	public void success(List<PermMeta> meta) {
+		
 		if (meta.size() == 0) {
 			System.out.println("No permissions");
 			return;
 		}
+		
 		PermMeta perm = meta.get(0);
 		for (int ch : perm.channels()) {
 			System.out.println("[" + ch + "] ~> " + perm.readable(ch) + " : " + perm.writable(ch));
@@ -271,8 +273,7 @@ You can grant permissions for other users directly from SDK:
 String user = "user";
 String topic = "topic";
 int channel = 5;
-boolean read = true;
-boolean write = true;
+boolean read = true, write = true;
 
 mag.grant(user, topic, channel, read, write, new io.magistral.client.perm.Callback() {			
 				
