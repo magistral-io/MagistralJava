@@ -205,6 +205,7 @@ m.history(topic, channel, start, count, new io.magistral.client.data.Callback() 
 ### History for Time Interval
 
 Historical data in Magistral can be obtained also for some period of time. You need to specify start and end date:
+
 ```java
 String topic = "topic"
 int channel = 0
@@ -221,6 +222,7 @@ m.history(topic, channel, start, end, new io.magistral.client.data.Callback() {
 					
 	public void error(MagistralException ex) {}
 });
+```
 
 ### Permissions
 
