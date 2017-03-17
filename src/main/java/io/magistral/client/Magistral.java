@@ -55,7 +55,8 @@ public class Magistral implements IMagistral {
 	
 	private String clientId;
 	private String pubKey, subKey, secretKey;
-	private boolean _ssl;
+	
+	private String token;
 	
 	private SecureRandom random = new SecureRandom();
 	
@@ -124,8 +125,6 @@ public class Magistral implements IMagistral {
 		
 		this.clientId = secretKey;
 		
-		this._ssl = false;
-		
 		try {
 			settings = REST.instance.getConnectionSettings(pubKey, subKey, secretKey, true);
 		} catch (MagistralException me) {
@@ -151,9 +150,9 @@ public class Magistral implements IMagistral {
 			logger.info("Properties {}", settings.get("pub"));
 			
 			for (Properties properties : settings.get("pub")) {
-				String token = settings.get("meta").get(0).getProperty("token");
+				token = settings.get("meta").get(0).getProperty("token");
 				
-				if (_ssl && properties.containsKey("bootstrap.servers.ssl")) {
+				if (properties.containsKey("bootstrap.servers.ssl")) {
 					properties.setProperty("bootstrap.servers", properties.get("bootstrap.servers.ssl").toString());
 					properties.remove("bootstrap.servers.ssl");
 				}
@@ -284,7 +283,7 @@ public class Magistral implements IMagistral {
 					final String bs = properties.getProperty("bootstrap.servers");
 					if (cm.containsKey(bs)) continue;
 					
-					GroupConsumer c = new GroupConsumer(subKey, bs, group, cph, permissions);					
+					GroupConsumer c = new GroupConsumer(subKey, bs, group, token, cph, permissions);					
 					consumerMap.get(group).put(bs, c);
 				}
 			}
@@ -308,9 +307,10 @@ public class Magistral implements IMagistral {
 			logger.debug("Connected to {}", meta.getEndPoints());
 			listener.connected(topic);
 			
+			if (callback != null) callback.success(meta);			
 			future.complete(meta);
-			if (callback != null) callback.success(meta);
 		} catch (Exception e) {
+			e.printStackTrace();
 			listener.error(new MagistralException(e));			
 			if (callback != null) callback.error(e);
 			future.completeExceptionally(e);
@@ -804,7 +804,7 @@ public class Magistral implements IMagistral {
 			List<Message> messages = new ArrayList<>(count);		
 			for (Properties properties : settings.get("sub")) {
 				String bs = properties.get("bootstrap.servers").toString();
-				MagistralConsumer consumer = new MagistralConsumer(pubKey, subKey, secretKey, bs, dCipher);				
+				MagistralConsumer consumer = new MagistralConsumer(pubKey, subKey, secretKey, token, bs, dCipher);				
 				messages.addAll(consumer.history(topic, channel, count));			
 			}
 			
@@ -835,7 +835,7 @@ public class Magistral implements IMagistral {
 			List<Message> messages = new ArrayList<>(count);		
 			for (Properties properties : settings.get("sub")) {
 				String bs = properties.get("bootstrap.servers").toString();
-				MagistralConsumer consumer = new MagistralConsumer(pubKey, subKey, secretKey, bs, dCipher);				
+				MagistralConsumer consumer = new MagistralConsumer(pubKey, subKey, secretKey, token, bs, dCipher);				
 				messages.addAll(consumer.history(topic, channel, start, count));			
 			}
 			
@@ -873,7 +873,7 @@ public class Magistral implements IMagistral {
 			List<Message> messages = new ArrayList<>();		
 			for (Properties properties : settings.get("sub")) {
 				String bs = properties.get("bootstrap.servers").toString();
-				MagistralConsumer consumer = new MagistralConsumer(pubKey, subKey, secretKey, bs, dCipher);				
+				MagistralConsumer consumer = new MagistralConsumer(pubKey, subKey, secretKey, token, bs, dCipher);				
 				messages.addAll(consumer.historyForTimePeriod(topic, channel, start, end));			
 			}
 			

@@ -43,16 +43,20 @@ public class GroupConsumer implements Runnable {
 	
 	private Map<String, Map<Integer, Long>> offsets = new HashMap<>();
 	
-	private static Properties createConsumerConfig(String bootstrapServers, String groupId) {
+	private static Properties createConsumerConfig(String bootstrapServers, String groupId, String token) {
+		
 		String home = System.getProperty("user.home");			
-		File magistralDir = new File(home + "/magistral");
+		File dir = new File(home + "/magistral/" + token);
 		
 		Properties props = new Properties();
 		props.put("bootstrap.servers", bootstrapServers);
 		props.put("group.id", groupId);
 		
-		props.put("enable.auto.commit", "true");
-		props.put("auto.commit.interval.ms", "2500");
+		props.put("heartbeat.interval.ms", "2000");		
+		props.put("metadata.max.age.ms", "180000");
+		
+		props.put("enable.auto.commit", "false");
+		props.put("auto.commit.interval.ms", "2000");
 		props.put("max.poll.records", "250");
 		
 		props.put("session.timeout.ms", "20000");
@@ -64,25 +68,25 @@ public class GroupConsumer implements Runnable {
 		props.put("value.deserializer", "org.apache.kafka.common.serialization.ByteArrayDeserializer");
 		
 		props.put("security.protocol", "SSL");
-		props.put("ssl.truststore.location", magistralDir.getAbsolutePath() + "/ts");
+		props.put("ssl.truststore.location", dir.getAbsolutePath() + "/ts");
 		props.put("ssl.truststore.password", "magistral");
 		
-		props.put("ssl.keystore.location",  magistralDir.getAbsolutePath() + "/ks");
+		props.put("ssl.keystore.location",  dir.getAbsolutePath() + "/ks");
 		props.put("ssl.keystore.password", "magistral");
 		props.put("ssl.key.password", "magistral");
 		
 		return props;
 	}
 	
-	public GroupConsumer(String sKey, String bootstrapServers, String groupId, List<PermMeta> permissions) {
-		this(sKey, bootstrapServers, groupId, null, permissions);
+	public GroupConsumer(String sKey, String bootstrapServers, String groupId, String token, List<PermMeta> permissions) {
+		this(sKey, bootstrapServers, groupId, token, null, permissions);
 	}
 
-	public GroupConsumer(String sKey, String bootstrapServers, String groupId, Cipher _cipher, List<PermMeta> permissions) {
+	public GroupConsumer(String sKey, String bootstrapServers, String groupId, String token, Cipher _cipher, List<PermMeta> permissions) {
 		this.group = groupId;
 		this.subKey = sKey;
 		
-		consumer = new KafkaConsumer<byte[], byte[]>(createConsumerConfig(bootstrapServers, groupId));
+		consumer = new KafkaConsumer<byte[], byte[]>(createConsumerConfig(bootstrapServers, groupId, token));
 		this.cipher = _cipher;
 		
 		this.permissions = permissions;
@@ -98,16 +102,16 @@ public class GroupConsumer implements Runnable {
 		
 		String etopic = subKey + "." + topic;
 		
-//		Map<String, List<PartitionInfo>> tpL = consumer.listTopics();
-//		
-//		if (!tpL.containsKey(etopic)) {
-//			MagistralException mex = new MagistralException("Topic [" + topic + "] does not exist.");
-//			callback.error(mex);
-//			throw mex;
-//		}	
-		
 		List<PartitionInfo> pif = consumer.partitionsFor(etopic);
-		if (pif == null || pif.isEmpty() || channel >= pif.size()) return;
+		if (pif == null || pif.isEmpty() || channel >= pif.size()) {
+			
+			Map<String, List<PartitionInfo>> ltis = consumer.listTopics();
+			if (ltis == null || !ltis.keySet().contains(etopic)) {
+				MagistralException mex = new MagistralException("Topic [" + topic + "] does not exist.");
+				callback.error(mex);
+				throw mex;
+			}
+		}
 		
 		Collection<Integer> channels = new HashSet<>(channel == -1 ? pif.size() : 1);
 		if (channel == -1) {
@@ -125,10 +129,16 @@ public class GroupConsumer implements Runnable {
 		if (channels.size() > 1 && channels.contains(-1)) channels.remove(-1);
 		
 		String etopic = subKey + "." + topic;
-		if (consumer.partitionsFor(etopic).size() == 0) {
-			MagistralException mex = new MagistralException("Topic [" + topic + "] does not exist.");
-			callback.error(mex);
-			throw mex;
+		
+		List<PartitionInfo> pis = consumer.partitionsFor(etopic);
+		if (pis == null || pis.size() == 0) {
+			
+			Map<String, List<PartitionInfo>> ltis = consumer.listTopics();
+			if (ltis == null || !ltis.keySet().contains(etopic)) {
+				MagistralException mex = new MagistralException("Topic [" + topic + "] does not exist.");
+				callback.error(mex);
+				throw mex;
+			}
 		}
 				
 		System.out.println("Subscribe -> " + topic + ":" + channels + " // " + subKey);
@@ -183,20 +193,20 @@ public class GroupConsumer implements Runnable {
 		consumer.assign(tpas);
 	}
 
-	public void run() {	
-		
-		try {
-			
+	public void run() {		
+		try {			
 			while (isAlive.get()) {			
-				ConsumerRecords<byte[], byte[]> records = consumer.poll(100);
+				ConsumerRecords<byte[], byte[]> records = consumer.poll(128);
 				if (records.count() == 0) continue;
 				
 				for (ConsumerRecord<byte[], byte[]> record : records) {							
 					handle(record);
 				}
+				
+				consumer.commitAsync();
 			}
-
 		} catch(Exception ex) {
+			ex.printStackTrace();
 		} finally {
 			consumer.close();
 		}

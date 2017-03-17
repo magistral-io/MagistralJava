@@ -4,6 +4,9 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.FileSystems;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.AbstractMap.SimpleEntry;
 
@@ -69,6 +72,8 @@ public enum REST {
 				String p = ssl ? jo.get("producer-ssl").toString() : jo.get("producer").toString();
 				String c = ssl ? jo.get("consumer-ssl").toString() : jo.get("consumer").toString();
 				
+				String token = jo.get("token").toString();
+				
 				if (i == 0) {
 					String ts = jo.get("ts").toString();
 					String ks = jo.get("ks").toString();
@@ -78,16 +83,23 @@ public enum REST {
 					byte[] bts = Base64.getDecoder().decode(ts);
 					byte[] bks = Base64.getDecoder().decode(ks);
 					
-					FileOutputStream fos = new FileOutputStream(magistralDir.getAbsolutePath() + "/ts");
+					File dir = new File(magistralDir.getAbsolutePath() + "/" + token);
+					dir.mkdirs(); dir.deleteOnExit();
+					
+					File tsFile = new File(dir.getAbsolutePath() + "/ts");
+					File ksFile = new File(dir.getAbsolutePath() + "/ks");
+					
+					tsFile.deleteOnExit();
+					ksFile.deleteOnExit();
+					
+					FileOutputStream fos = new FileOutputStream(tsFile.getAbsolutePath());
 					fos.write(bts);
 					fos.close();
 					
-					fos = new FileOutputStream(magistralDir.getAbsolutePath() + "/ks");
+					fos = new FileOutputStream(ksFile.getAbsolutePath());
 					fos.write(bks);
 					fos.close();
 				}
-				
-				String token = jo.get("token").toString();
 				
 				if (!out.containsKey("pub")) out.put("pub", new ArrayList<Properties>(arr.size()));
 				if (!out.containsKey("sub")) out.put("sub", new ArrayList<Properties>(arr.size()));
@@ -98,10 +110,10 @@ public enum REST {
 				pp.put("bootstrap.servers", p);
 				if (ssl) {
 					pp.put("security.protocol", "SSL");
-					pp.put("ssl.truststore.location", magistralDir.getAbsolutePath() + "/ts");
+					pp.put("ssl.truststore.location", magistralDir.getAbsolutePath() + "/" + token + "/ts");
 					pp.put("ssl.truststore.password", "magistral");
 					
-					pp.put("ssl.keystore.location",  magistralDir.getAbsolutePath() + "/ks");
+					pp.put("ssl.keystore.location",  magistralDir.getAbsolutePath() + "/" + token + "/ks");
 					pp.put("ssl.keystore.password", "magistral");
 					pp.put("ssl.key.password", "magistral");
 				}
@@ -123,10 +135,13 @@ public enum REST {
 			}
 			
 		} catch (ParseException e) {
+			e.printStackTrace();
 			throw new MagistralException(e.getMessage());
 		} catch (FileNotFoundException e) {
+			e.printStackTrace();
 			throw new MagistralException(e.getMessage());
 		} catch (IOException e) {
+			e.printStackTrace();
 			throw new MagistralException(e.getMessage());
 		} 
 		

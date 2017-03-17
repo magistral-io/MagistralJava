@@ -22,9 +22,6 @@ public class MagistralConsumer {
 	
 	private Properties props; {
 		
-		String home = System.getProperty("user.home");			
-		File magistralDir = new File(home + "/magistral");
-		
 		props = new Properties();
 		props.put("enable.auto.commit", "false");
 		props.put("session.timeout.ms", "15000");
@@ -35,23 +32,28 @@ public class MagistralConsumer {
 		props.put("key.deserializer", "org.apache.kafka.common.serialization.ByteArrayDeserializer");
 		props.put("value.deserializer", "org.apache.kafka.common.serialization.ByteArrayDeserializer");
 		
-		props.put("security.protocol", "SSL");
-		props.put("ssl.truststore.location", magistralDir.getAbsolutePath() + "/ts");
-		props.put("ssl.truststore.password", "magistral");
-		
-		props.put("ssl.keystore.location",  magistralDir.getAbsolutePath() + "/ks");
-		props.put("ssl.keystore.password", "magistral");
-		props.put("ssl.key.password", "magistral");
 	}
 
-	public MagistralConsumer(String pubKey, String subKey, String sKey, String bootstrapServers, Cipher dCipher) {
-		props.put("bootstrap.servers", bootstrapServers);
+	public MagistralConsumer(String pubKey, String subKey, String sKey, String token, String bootstrapServers, Cipher dCipher) {
 		
 		this.pubKey = pubKey;
 		this.subKey = subKey;
 		this.authKey = sKey;
 		
 		this.cipher = dCipher;
+		
+		String home = System.getProperty("user.home");			
+		File dir = new File(home + "/magistral" + "/" + token);
+		
+		props.put("bootstrap.servers", bootstrapServers);
+		
+		props.put("security.protocol", "SSL");
+		props.put("ssl.truststore.location", dir.getAbsolutePath() + "/ts");
+		props.put("ssl.truststore.password", "magistral");
+		
+		props.put("ssl.keystore.location",  dir.getAbsolutePath() + "/ks");
+		props.put("ssl.keystore.password", "magistral");
+		props.put("ssl.key.password", "magistral");
 	}
 	
 	public List<Message> history(String topic, int channel, int records) throws MagistralException {	
