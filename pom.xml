@@ -4,7 +4,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>io.magistral.sdk</groupId>
 	<artifactId>MagistralJava</artifactId>
-	<version>1.0</version>
+	<version>1.0.1</version>
 	<name>MagistralJava</name>
 	<description>Java SDK for Magistral</description>
 	
