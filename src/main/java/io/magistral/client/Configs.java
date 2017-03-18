@@ -9,9 +9,9 @@ public class Configs {
 	static {
 		producer = new Properties();
 		
-		producer.put("acks", "0");
+		producer.put("acks", "1");
 		producer.put("retries", "5");
-		producer.put("batch.size", "50");
+		producer.put("batch.size", "65536");
 		producer.put("linger.ms", 5);
 		producer.put("request.timeout.ms", 60000);
 		producer.put("max.in.flight.requests.per.connection", 3);

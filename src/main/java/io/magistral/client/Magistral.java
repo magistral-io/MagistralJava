@@ -76,6 +76,8 @@ public class Magistral implements IMagistral {
 	
 	private List<PermMeta> permissions = new ArrayList<>();
 	
+	private MqttExFeed mqttExFeed = new MqttExFeed();
+	
 	private volatile boolean alive = true;
 	
 	/**
@@ -195,6 +197,7 @@ public class Magistral implements IMagistral {
 					public void messageArrived(String arg0, MqttMessage msg) throws Exception {								
 						JSONObject json = (JSONObject) new JSONParser().parse(new String(msg.getPayload(), StandardCharsets.UTF_8));
 						mqttExFeed.exception(json);
+						System.out.println(json.toJSONString());
 					}
 					
 					public void deliveryComplete(IMqttDeliveryToken arg0) {								
@@ -359,6 +362,8 @@ public class Magistral implements IMagistral {
 		return future;
 	}
 
+	private SingleMqttExFeedbacker smef = new SingleMqttExFeedbacker();
+	
 	private class SingleMqttExFeedbacker implements Observer {		
 		
 		private TimedMap<String, SimpleEntry<CompletableFuture<PubMeta>, Callback>> map = new TimedMap<>();
@@ -389,7 +394,7 @@ public class Magistral implements IMagistral {
 		}
 		
 		public void completeWithin(CompletableFuture<PubMeta> completableFuture, Callback callback, String topic, int partition, long offset, long timeout) {
-			map.put(topic + "^" + partition + "^" + offset, new SimpleEntry<CompletableFuture<PubMeta>, Callback>(completableFuture, callback), timeout);
+			map.put(topic + "^" + partition + "^" + offset, new SimpleEntry<CompletableFuture<PubMeta>, Callback>(completableFuture, callback), timeout);			
 		}
 
 		@Override
@@ -417,7 +422,7 @@ public class Magistral implements IMagistral {
 					se.getKey().completeExceptionally(exc);
 				}
 			} 
-			
+
 			if (map.containsKey(t + "^" + channel + "^" + off)) {
 				MagistralException exc = new MagistralException(ERROR.getByCode((int)errorCode).message());
 
@@ -429,8 +434,6 @@ public class Magistral implements IMagistral {
 			}
 		}
 	}
-	
-	private SingleMqttExFeedbacker smef = new SingleMqttExFeedbacker();
 	
 	/**
 	 * <p>Publishes message to all topic channels</p>
@@ -515,7 +518,7 @@ public class Magistral implements IMagistral {
 							return;
 						}
 						
-						smef.completeWithin(completableFuture, callback, topic, partition, offset, 2000);
+						smef.completeWithin(completableFuture, callback, topic, partition, offset, 5000);
 					}
 				});
 			}
@@ -588,7 +591,7 @@ public class Magistral implements IMagistral {
 					long offset = metadata.offset();
 					int partition = metadata.partition();
 										
-					smef.completeWithin(completableFuture, callback, topic, partition, offset, 2000);
+					smef.completeWithin(completableFuture, callback, topic, partition, offset, 5000);
 				}
 			});
 			
@@ -1232,5 +1235,4 @@ public class Magistral implements IMagistral {
 		}
 	}
 	
-	private MqttExFeed mqttExFeed = new MqttExFeed();
 }
