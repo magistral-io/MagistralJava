@@ -10,6 +10,7 @@ import java.security.SecureRandom;
 import java.util.*;
 import java.util.AbstractMap.SimpleEntry;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
@@ -18,6 +19,7 @@ import javax.crypto.NoSuchPaddingException;
 import javax.crypto.spec.SecretKeySpec;
 
 import org.apache.kafka.clients.producer.*;
+import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.eclipse.paho.client.mqttv3.*;
@@ -75,25 +77,26 @@ public class Magistral implements IMagistral {
 	private List<PermMeta> permissions = new ArrayList<>();
 	
 	private volatile boolean alive = true;
-		
-	private int randomInteger(int min, int max) {
-	    int randomNum = random.nextInt((max - min) + 1) + min;
-	    return randomNum;
-	}
 	
+	/**
+	 * Creates Magistral instance
+	 * 
+	 * @param pubKey - publish key
+	 * @param subKey - subscribe key
+	 * @param secretKey - secret (API) key
+	 */
 	public Magistral(String pubKey, String subKey, String secretKey) {
 		this(pubKey, subKey, secretKey, null);
 	}
-		
-	private class MqttExFeed extends Observable {
-		public void exception(JSONObject obj) {
-			setChanged();
-			notifyObservers(obj);
-		}
-	}
 	
-	private MqttExFeed mqttExFeed = new MqttExFeed();
-	
+	/**
+	 * Creates Magistral instance
+	 * 
+	 * @param pubKey - publish key
+	 * @param subKey - subscribe key
+	 * @param secretKey - secret (API) key
+	 * @param cipher - AES-key to (de)cipher message bodies with
+	 */
 	public Magistral(String pubKey, String subKey, String secretKey, String cipher) {
 		
 		if (pubKey == null || !pubKey.matches(PUB_KEY_REGEX)) {
@@ -242,23 +245,61 @@ public class Magistral implements IMagistral {
 	public void setClientId(String clientId) {
 		this.clientId = clientId;
 	}
-		
+	
+	/**
+	 * <p>Subscribes to specific topic and all its channels user has permissions to read from</p>
+	 * 
+	 * @param topic - topic name
+	 * @param listener - callback parameter, triggered on message received event or other network action
+	 * @param callback - callback with operation result status
+	 * @throws MagistralException
+	 */
 	public Future<SubMeta> subscribe(String topic, NetworkListener listener, io.magistral.client.sub.Callback callback) throws MagistralException {
 		return subscribe(topic, "default", -1, listener, callback); 
 	}
 	
+	/**
+	 * <p>Subscribes to specific topic and channel</p>
+	 * 
+	 * @param topic - topic name
+	 * @param channel - channel number. When negative [< 0] subscription is made to all topic channels user has permissions to read from 
+	 * @param listener - callback parameter, triggered on message received event or other network action
+	 * @param callback - callback with operation result status
+	 * @throws MagistralException
+	 */
 	public Future<SubMeta> subscribe(String topic, int channel, NetworkListener listener, io.magistral.client.sub.Callback callback) throws MagistralException {
 		return subscribe(topic, "default", channel, listener, callback);
 	}
 	
+	/**
+	 * <p>Subscribes to specific topic and all its channels user has permissions to read from</p>
+	 * 
+	 * @param topic - topic name
+	 * @param group - listener group name
+	 * @param listener - callback parameter, triggered on message received event or other network action
+	 * @param callback - callback with operation result status
+	 * @throws MagistralException
+	 */
 	public Future<SubMeta> subscribe(String topic, String group, NetworkListener listener, io.magistral.client.sub.Callback callback) throws MagistralException {
 		return subscribe(topic, group, -1, listener, callback);
 	}
 	
-	public Future<SubMeta> subscribe(final String topic, final String group, final int channel, NetworkListener listener, io.magistral.client.sub.Callback callback) throws MagistralException {		
+	/**
+	 * <p>Subscribes to specific topic and channel</p>
+	 * 
+	 * @param topic - topic name
+	 * @param group - listener group name
+	 * @param channel - channel number. When negative [< 0] subscription is made to all topic channels user has permissions to read from
+	 * @param listener - callback parameter, triggered on message received event or other network action
+	 * @param callback - callback with operation result status
+	 * @throws MagistralException
+	 */
+	public Future<SubMeta> subscribe(final String topic, String group, final int channel, NetworkListener listener, io.magistral.client.sub.Callback callback) throws MagistralException {		
 		
 		CompletableFuture<SubMeta> future = new CompletableFuture<SubMeta>();
-		try {			
+		try {		
+			
+			if (group == null || group.equals("")) group = "default";
 			
 			Map<String, GroupConsumer> cm;
 			if (!consumerMap.containsKey(group)) {
@@ -391,6 +432,37 @@ public class Magistral implements IMagistral {
 	
 	private SingleMqttExFeedbacker smef = new SingleMqttExFeedbacker();
 	
+	/**
+	 * <p>Publishes message to all topic channels</p>
+	 * 
+	 * @param topic - topic name
+	 * @param body - binary message payload
+	 * @throws MagistralException
+	 */
+	public Future<PubMeta> publish(String topic, byte[] body) throws MagistralException {
+		return publish(topic, body, null);
+	}
+
+	/**
+	 * <p>Publishes message to specific topic channel</p>
+	 * 
+	 * @param topic - topic name
+	 * @param channel - channel number. When negative [< 0] subscription is made to all topic channels user has permissions to read from
+	 * @param body - binary message payload
+	 * @throws MagistralException
+	 */
+	public Future<PubMeta> publish(String topic, int channel, byte[] body) throws MagistralException {
+		return publish(topic, channel, body, null);
+	}	
+	
+	/**
+	 * <p>Publishes message to all topic channels</p>
+	 * 
+	 * @param topic - topic name
+	 * @param body - binary message payload
+	 * @param callback - callback with operation result status
+	 * @throws MagistralException
+	 */
 	public Future<PubMeta> publish(String topic, byte[] body, io.magistral.client.pub.Callback callback) throws MagistralException {
 		
 		try {			
@@ -412,37 +484,41 @@ public class Magistral implements IMagistral {
 				encrypted = Base64.getEncoder().encode(_cipher.doFinal(padded));
 			}
 			
-			ProducerRecord<String, byte[]> msg = new ProducerRecord<String, byte[]>(realTopic, secretKey + "-" + token, encrypted);
-			
 			CompletableFuture<PubMeta> completableFuture = new CompletableFuture<PubMeta>();
 			
-			p.send(msg, new org.apache.kafka.clients.producer.Callback() {
-				
-				@Override
-				public void onCompletion(RecordMetadata metadata, Exception exception) {
-					
-					String topic = metadata.topic().replaceAll("pub-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.", "");
-					long offset = metadata.offset();
-					int partition = metadata.partition();
-					
-					if (exception != null) {
-						exception.printStackTrace();
+			List<PartitionInfo> pis = p.partitionsFor(realTopic);
 						
-						if (callback != null) callback.error(new MagistralException(exception));
-						completableFuture.completeExceptionally(exception);
-						return;
-					}
+			for (PartitionInfo pi : pis) {
+				
+				ProducerRecord<String, byte[]> msg = new ProducerRecord<String, byte[]>(realTopic, pi.partition(), secretKey + "-" + token, encrypted);				
+				p.send(msg, new org.apache.kafka.clients.producer.Callback() {
 					
-					if (learnedErrors.containsKey(topic + "^" + partition)) {
-						MagistralException magEx = new MagistralException(learnedErrors.get(topic + "^" + partition).message());
-						if (callback != null) callback.error(magEx);
-						completableFuture.completeExceptionally(magEx);
-						return;
+					@Override
+					public void onCompletion(RecordMetadata metadata, Exception exception) {
+						
+						String topic = metadata.topic().replaceAll("pub-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.", "");
+						long offset = metadata.offset();
+						int partition = metadata.partition();
+						
+						if (exception != null) {
+							exception.printStackTrace();
+							
+							if (callback != null) callback.error(new MagistralException(exception));
+							completableFuture.completeExceptionally(exception);
+							return;
+						}
+						
+						if (learnedErrors.containsKey(topic + "^" + partition)) {
+							MagistralException magEx = new MagistralException(learnedErrors.get(topic + "^" + partition).message());
+							if (callback != null) callback.error(magEx);
+							completableFuture.completeExceptionally(magEx);
+							return;
+						}
+						
+						smef.completeWithin(completableFuture, callback, topic, partition, offset, 2000);
 					}
-					
-					smef.completeWithin(completableFuture, callback, topic, partition, offset, 2000);
-				}
-			});
+				});
+			}
 			
 			return completableFuture;		
 		} catch (IllegalBlockSizeException e) {
@@ -452,6 +528,15 @@ public class Magistral implements IMagistral {
 		}
 	}
 	
+	/**
+	 * <p>Publishes message to specific topic channel</p>
+	 * 
+	 * @param topic - topic name
+	 * @param channel - channel number. When negative [< 0] subscription is made to all topic channels user has permissions to read from
+	 * @param body - binary message payload
+	 * @param callback - callback with operation result status
+	 * @throws MagistralException
+	 */
 	public Future<PubMeta> publish(String topic, int channel, byte[] body, io.magistral.client.pub.Callback callback) throws MagistralException {		
 		try {
 			if (pM.size() == 0) {				
@@ -515,7 +600,11 @@ public class Magistral implements IMagistral {
 		}
 	}
 
-	@Override
+	/**
+	 * <p>Returns user permissions</p>
+	 * 
+	 * @throws MagistralException
+	 */
 	public Future<List<PermMeta>> permissions() throws MagistralException {		
 		CompletableFuture<List<PermMeta>> future = new CompletableFuture<List<PermMeta>>();
 		List<PermMeta> perms = REST.instance.permissions(pubKey, subKey, secretKey, null);		
@@ -523,32 +612,109 @@ public class Magistral implements IMagistral {
 		return future;
 	}
 
-	@Override
+	/**
+	 * <p>Returns user permissions for specific topic</p>
+	 * 
+	 * @throws MagistralException
+	 */
 	public Future<List<PermMeta>> permissions(String topic) throws MagistralException {
 		return permissions(topic, null);
 	}
 
-	@Override
+	/**
+	 * <p>Returns user permissions</p>
+	 * 
+	 * @param callback - callback with user permissions
+	 * @throws MagistralException
+	 */
+	public Future<List<PermMeta>> permissions(io.magistral.client.perm.Callback callback) throws MagistralException {		
+		CompletableFuture<List<PermMeta>> future = new CompletableFuture<List<PermMeta>>();
+		List<PermMeta> perms = REST.instance.permissions(pubKey, subKey, secretKey, null);		
+		future.complete(perms);
+		if (callback != null) callback.success(perms);		
+		return future;
+	}
+
+	/**
+	 * <p>Returns user permissions for specific topic</p>
+	 * 
+	 * @param callback - callback with user permissions
+	 * @throws MagistralException
+	 */
+	public Future<List<PermMeta>> permissions(String topic, io.magistral.client.perm.Callback callback) throws MagistralException {
+		CompletableFuture<List<PermMeta>> future = new CompletableFuture<List<PermMeta>>();
+		List<PermMeta> perms = REST.instance.permissions(pubKey, subKey, secretKey, topic);		
+		future.complete(perms);
+		if (callback != null) callback.success(perms);
+		return future;
+	}
+	
+	/**
+	 * <p>Grants permanent permissions</p>
+	 * 
+	 * @param user - user name
+	 * @param topic - topic name
+	 * @param read - read permission
+	 * @param write - write permission 
+	 * @throws MagistralException
+	 */
 	public Future<List<PermMeta>> grant(String user, String topic, boolean read, boolean write) throws MagistralException {	
 		return grant(user, topic, read, write, null);
 	}
 
-	@Override
+	/**
+	 * <p>Grants temporary permissions</p>
+	 * 
+	 * @param user - user name
+	 * @param topic - topic name
+	 * @param read - read permission
+	 * @param write - write permission
+	 * @param ttl - time-to-live in seconds 
+	 * @throws MagistralException
+	 */
 	public Future<List<PermMeta>> grant(String user, String topic, boolean read, boolean write, int ttl) throws MagistralException {		
 		return grant(user, topic, read, write, ttl, null);
 	}
 
-	@Override
+	/**
+	 * <p>Grants permanent permissions</p>
+	 * 
+	 * @param user - user name
+	 * @param topic - topic name
+	 * @param channel - channel number
+	 * @param read - read permission
+	 * @param write - write permission
+	 * @throws MagistralException
+	 */
 	public Future<List<PermMeta>> grant(String user, String topic, int channel, boolean read, boolean write) throws MagistralException {		
 		return grant(user, topic, channel, read, write, null);
 	}
 
-	@Override
+	/**
+	 * <p>Grants temporary permissions</p>
+	 * 
+	 * @param user - user name
+	 * @param topic - topic name
+	 * @param channel - channel number
+	 * @param read - read permission
+	 * @param write - write permission
+	 * @param ttl - time-to-live in seconds
+	 * @throws MagistralException
+	 */
 	public Future<List<PermMeta>> grant(String user, String topic, int channel, boolean read, boolean write, int ttl) throws MagistralException {
 		return grant(user, topic, channel, read, write, ttl, null);
 	}
 	
-	@Override
+	/**
+	 * <p>Grants permanent permissions</p>
+	 * 
+	 * @param user - user name
+	 * @param topic - topic name
+	 * @param read - read permission
+	 * @param write - write permission 
+	 * @param callback - callback with operation result status
+	 * @throws MagistralException
+	 */
 	public Future<List<PermMeta>> grant(String user, String topic, boolean read, boolean write, io.magistral.client.perm.Callback callback) throws MagistralException {
 		try {
 			CompletableFuture<List<PermMeta>> future = new CompletableFuture<List<PermMeta>>();
@@ -562,7 +728,17 @@ public class Magistral implements IMagistral {
 		}
 	}
 
-	@Override
+	/**
+	 * <p>Grants temporary permissions</p>
+	 * 
+	 * @param user - user name
+	 * @param topic - topic name
+	 * @param read - read permission
+	 * @param write - write permission
+	 * @param ttl - time-to-live in seconds 
+	 * @param callback - callback with operation result status
+	 * @throws MagistralException
+	 */
 	public Future<List<PermMeta>> grant(String user, String topic, boolean read, boolean write, int ttl, io.magistral.client.perm.Callback callback) throws MagistralException {
 		try {
 			CompletableFuture<List<PermMeta>> future = new CompletableFuture<List<PermMeta>>();
@@ -576,7 +752,17 @@ public class Magistral implements IMagistral {
 		}
 	}
 
-	@Override
+	/**
+	 * <p>Grants permanent permissions</p>
+	 * 
+	 * @param user - user name
+	 * @param topic - topic name
+	 * @param channel - channel number
+	 * @param read - read permission
+	 * @param write - write permission
+	 * @param callback - callback with operation result status
+	 * @throws MagistralException
+	 */
 	public Future<List<PermMeta>> grant(String user, String topic, int channel, boolean read, boolean write, io.magistral.client.perm.Callback callback) throws MagistralException {
 		try {
 			CompletableFuture<List<PermMeta>> future = new CompletableFuture<List<PermMeta>>();
@@ -590,7 +776,18 @@ public class Magistral implements IMagistral {
 		}
 	}
 
-	@Override
+	/**
+	 * <p>Grants temporary permissions</p>
+	 * 
+	 * @param user - user name
+	 * @param topic - topic name
+	 * @param channel - channel number
+	 * @param read - read permission
+	 * @param write - write permission
+	 * @param ttl - time-to-live in seconds
+	 * @param callback - callback with operation result status
+	 * @throws MagistralException
+	 */
 	public Future<List<PermMeta>> grant(String user, String topic, int channel, boolean read, boolean write, int ttl, io.magistral.client.perm.Callback callback) throws MagistralException {
 		try {
 			CompletableFuture<List<PermMeta>> future = new CompletableFuture<List<PermMeta>>();
@@ -604,7 +801,13 @@ public class Magistral implements IMagistral {
 		}
 	}
 	
-	@Override
+	/**
+	 * <p>Revokes user permission</p>
+	 * 
+	 * @param user - user name
+	 * @param topic - topic name
+	 * @throws MagistralException
+	 */
 	public Future<List<PermMeta>> revoke(String user, String topic) throws MagistralException {		
 		CompletableFuture<List<PermMeta>> future = new CompletableFuture<List<PermMeta>>();
 		List<PermMeta> perms =  REST.instance.revoke(pubKey, subKey, secretKey, user, topic, null);
@@ -612,7 +815,14 @@ public class Magistral implements IMagistral {
 		return future;
 	}
 
-	@Override
+	/**
+	 * <p>Revokes user permission</p>
+	 * 
+	 * @param user - user name
+	 * @param topic - topic name
+	 * @param channel - channel number
+	 * @throws MagistralException
+	 */
 	public Future<List<PermMeta>> revoke(String user, String topic, int channel) throws MagistralException {
 		CompletableFuture<List<PermMeta>> future = new CompletableFuture<List<PermMeta>>();
 		List<PermMeta> perms =  REST.instance.revoke(pubKey, subKey, secretKey, user, topic, channel);
@@ -620,7 +830,14 @@ public class Magistral implements IMagistral {
 		return future;
 	}
 	
-	@Override
+	/**
+	 * <p>Revokes user permission</p>
+	 * 
+	 * @param user - user name
+	 * @param topic - topic name
+	 * @param callback - callback with operation result status
+	 * @throws MagistralException
+	 */
 	public Future<List<PermMeta>> revoke(String user, String topic, io.magistral.client.perm.Callback callback) throws MagistralException {
 		CompletableFuture<List<PermMeta>> future = new CompletableFuture<List<PermMeta>>();
 		List<PermMeta> perms = REST.instance.revoke(pubKey, subKey, secretKey, user, topic, null);
@@ -628,7 +845,15 @@ public class Magistral implements IMagistral {
 		return future;
 	}
 
-	@Override
+	/**
+	 * <p>Revokes user permission</p>
+	 * 
+	 * @param user - user name
+	 * @param topic - topic name
+	 * @param channel - channel number
+	 * @param callback - callback with operation result status
+	 * @throws MagistralException
+	 */
 	public Future<List<PermMeta>> revoke(String user, String topic, int channel, io.magistral.client.perm.Callback callback) throws MagistralException {
 		CompletableFuture<List<PermMeta>> future = new CompletableFuture<List<PermMeta>>();
 		List<PermMeta> perms = REST.instance.revoke(pubKey, subKey, secretKey, user, topic, channel);
@@ -636,7 +861,12 @@ public class Magistral implements IMagistral {
 		return future;
 	}
 	
-	@Override
+	/**
+	 * <p>Unsubscribes from topic</p>
+	 * 
+	 * @param topic - topic name
+	 * @throws MagistralException
+	 */
 	public Future<SubMeta> unsubscribe(String topic) throws MagistralException {
 		CompletableFuture<SubMeta> future = new CompletableFuture<SubMeta>();
 		SubMeta subMeta = new SubMeta();
@@ -658,7 +888,13 @@ public class Magistral implements IMagistral {
 		return future;
 	}
 
-	@Override
+	/**
+	 * <p>Unsubscribes from topic's channel</p>
+	 * 
+	 * @param topic - topic name
+	 * @param channel - channel number 
+	 * @throws MagistralException
+	 */
 	public Future<SubMeta> unsubscribe(String topic, int channel) throws MagistralException {
 		CompletableFuture<SubMeta> future = new CompletableFuture<SubMeta>();
 		SubMeta subMeta = new SubMeta();
@@ -680,37 +916,60 @@ public class Magistral implements IMagistral {
 		return future;
 	}
 
-	@Override
+	/**
+	 * <p>Subscribes on all topic channels</p>
+	 * 
+	 * @param topic - topic name
+	 * @param listener - callback parameter, triggered on message received event or other network action
+	 * @throws MagistralException
+	 */
 	public Future<SubMeta> subscribe(String topic, NetworkListener listener) throws MagistralException {
 		return subscribe(topic, listener, null);
 	}
 
-	@Override
+	/**
+	 * <p>Subscribes on specific topic channel</p>
+	 * 
+	 * @param topic - topic name
+	 * @param channel - channel number
+	 * @param listener - callback parameter, triggered on message received event or other network action
+	 * @throws MagistralException
+	 */
 	public Future<SubMeta> subscribe(String topic, int channel, NetworkListener listener) throws MagistralException {
 		return subscribe(topic, channel, listener, null);
 	}
 
-	@Override
+	/**
+	 * <p>Subscribes on all topic channels</p>
+	 * 
+	 * @param topic - topic name
+	 * @param group - group name
+	 * @param listener - callback parameter, triggered on message received event or other network action
+	 * @throws MagistralException
+	 */
 	public Future<SubMeta> subscribe(String topic, String group, NetworkListener listener) throws MagistralException {
 		return subscribe(topic, group, listener, null);
 	}
 
-	@Override
+	/**
+	 * <p>Subscribes on specific topic channel</p>
+	 * 
+	 * @param topic - topic name
+	 * @param group - group name
+	 * @param channel - channel number
+	 * @param listener - callback parameter, triggered on message received event or other network action
+	 * @throws MagistralException
+	 */
 	public Future<SubMeta> subscribe(String topic, String group, int channel, NetworkListener listener) throws MagistralException {
 		return subscribe(topic, group, channel, listener, null);
 	}
 
-	@Override
-	public Future<PubMeta> publish(String topic, byte[] msg) throws MagistralException {
-		return publish(topic, msg, null);
-	}
-
-	@Override
-	public Future<PubMeta> publish(String topic, int channel, byte[] msg) throws MagistralException {
-		return publish(topic, channel, msg, null);
-	}
-
-	@Override
+	/**
+	 * <p>Returns meta-information about all available topics and channels</p>
+	 * 
+	 * @param callback - callback parameter, that contains topic/channel meta-data
+	 * @throws MagistralException
+	 */
 	public Future<List<TopicMeta>> topics(io.magistral.client.topics.Callback callback) throws MagistralException {
 		CompletableFuture<List<TopicMeta>> future = new CompletableFuture<>();		
 		List<TopicMeta> res = new ArrayList<TopicMeta>();
@@ -735,12 +994,23 @@ public class Magistral implements IMagistral {
 		}
 	}
 
-	@Override
+	/**
+	 * <p>Returns meta-information about available channels for specific topic</p>
+	 * 
+	 * @param topic - topic name
+	 * @throws MagistralException
+	 */
 	public Future<TopicMeta> topic(String topic) throws MagistralException {
 		return topic(topic, null);
 	}
 
-	@Override
+	/**
+	 * <p>Returns meta-information about available channels for specific topic</p>
+	 * 
+	 * @param topic - topic name
+	 * @param callback - callback parameter, that contains topic/channel meta-data
+	 * @throws MagistralException
+	 */
 	public Future<TopicMeta> topic(String topic, io.magistral.client.topics.Callback callback) throws MagistralException {
 		CompletableFuture<TopicMeta> future = new CompletableFuture<>();		
 		TopicMeta res = new TopicMeta();
@@ -770,27 +1040,62 @@ public class Magistral implements IMagistral {
 		}
 	}
 
-	@Override
+	/**
+	 * <p>Returns meta-information about all available topics and channels</p>
+	 * 
+	 * @throws MagistralException
+	 */
 	public Future<List<TopicMeta>> topics() throws MagistralException {
 		return topics(null);
 	}
 
-	@Override
+	/**
+	 * <p>Returns last n-messages sent over specific topic channel</p>
+	 * 
+	 * @param topic - topic name
+	 * @param channel - channel number
+	 * @param count - number of last messages to return
+	 * @throws MagistralException
+	 */
 	public Future<History> history(String topic, int channel, int count) throws MagistralException {
 		return history(topic, channel, count, null);
 	}
 
-	@Override
+	/**
+	 * <p>Returns n-messages sent over specific topic channel starting from specified timestamp</p>
+	 * 
+	 * @param topic - topic name
+	 * @param channel - channel number
+	 * @param start - timestamp to start looking messages from
+	 * @param count - number of last messages to return
+	 * @throws MagistralException
+	 */
 	public Future<History> history(String topic, int channel, long start, int count) throws MagistralException {
 		return history(topic, channel, start, count, null);
 	}
 
-	@Override
+	/**
+	 * <p>Returns messages sent over specific topic channel within time period</p>
+	 * 
+	 * @param topic - topic name
+	 * @param channel - channel number
+	 * @param start - begin of time period
+	 * @param end - end of time period
+	 * @throws MagistralException
+	 */
 	public Future<History> history(String topic, int channel, long start, long end) throws MagistralException {
 		return history(topic, channel, start, end, null);
 	}
 
-	@Override
+	/**
+	 * <p>Returns last n-messages sent over specific topic channel</p>
+	 * 
+	 * @param topic - topic name
+	 * @param channel - channel number
+	 * @param count - number of last messages to return
+	 * @param callback - callback parameter, that contains requested data
+	 * @throws MagistralException
+	 */
 	public Future<History> history(String topic, int channel, int count, io.magistral.client.data.Callback callback) throws MagistralException {
 		CompletableFuture<History> future = new CompletableFuture<>();
 		try {
@@ -821,7 +1126,16 @@ public class Magistral implements IMagistral {
 		return future;
 	}
 
-	@Override
+	/**
+	 * <p>Returns n-messages sent over specific topic channel starting from specified timestamp</p>
+	 * 
+	 * @param topic - topic name
+	 * @param channel - channel number
+	 * @param start - timestamp to start looking messages from
+	 * @param count - number of last messages to return
+	 * @param callback - callback parameter, that contains requested data
+	 * @throws MagistralException
+	 */
 	public Future<History> history(String topic, int channel, long start, int count, io.magistral.client.data.Callback callback) throws MagistralException {
 		
 		CompletableFuture<History> future = new CompletableFuture<>();
@@ -851,7 +1165,16 @@ public class Magistral implements IMagistral {
 		return future;
 	}
 
-	@Override
+	/**
+	 * <p>Returns messages sent over specific topic channel within time period</p>
+	 * 
+	 * @param topic - topic name
+	 * @param channel - channel number
+	 * @param start - begin of time period
+	 * @param end - end of time period
+	 * @param callback - callback parameter, that contains requested data
+	 * @throws MagistralException
+	 */
 	public Future<History> history(String topic, int channel, long start, long end, io.magistral.client.data.Callback callback) throws MagistralException {
 		CompletableFuture<History> future = new CompletableFuture<>();
 
@@ -889,26 +1212,25 @@ public class Magistral implements IMagistral {
 		return future;
 	}
 
-	@Override
-	public Future<List<PermMeta>> permissions(io.magistral.client.perm.Callback callback) throws MagistralException {		
-		CompletableFuture<List<PermMeta>> future = new CompletableFuture<List<PermMeta>>();
-		List<PermMeta> perms = REST.instance.permissions(pubKey, subKey, secretKey, null);		
-		future.complete(perms);
-		if (callback != null) callback.success(perms);		
-		return future;
-	}
-
-	@Override
-	public Future<List<PermMeta>> permissions(String topic, io.magistral.client.perm.Callback callback) throws MagistralException {
-		CompletableFuture<List<PermMeta>> future = new CompletableFuture<List<PermMeta>>();
-		List<PermMeta> perms = REST.instance.permissions(pubKey, subKey, secretKey, topic);		
-		future.complete(perms);
-		if (callback != null) callback.success(perms);
-		return future;
-	}
+	
 
 	@Override
 	public void close() {
+		alive = false;
 		System.exit(0);
 	}
+	
+	private int randomInteger(int min, int max) {
+	    int randomNum = random.nextInt((max - min) + 1) + min;
+	    return randomNum;
+	}
+	
+	private class MqttExFeed extends Observable {
+		public void exception(JSONObject obj) {
+			setChanged();
+			notifyObservers(obj);
+		}
+	}
+	
+	private MqttExFeed mqttExFeed = new MqttExFeed();
 }

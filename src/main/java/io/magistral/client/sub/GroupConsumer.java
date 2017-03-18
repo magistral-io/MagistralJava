@@ -61,7 +61,7 @@ public class GroupConsumer implements Runnable {
 		
 		props.put("session.timeout.ms", "20000");
 		props.put("fetch.min.bytes", "64");
-		props.put("fetch.wait.max.ms", "96");		
+		props.put("fetch.max.wait.ms", "96");		
 		props.put("max.partition.fetch.bytes", "65565");
 		
 		props.put("key.deserializer", "org.apache.kafka.common.serialization.ByteArrayDeserializer");
@@ -77,14 +77,33 @@ public class GroupConsumer implements Runnable {
 		
 		return props;
 	}
-	
+
+	/**
+	 * Creates group consumer instance to listen incoming messages 
+	 * 
+	 * @param subKey - subscription key, provided on creation of Magistral instance
+	 * @param bootstrapServers - string of comma-separated addresses of servers ([IP]:[PORT],[IP]:[PORT] ...) received when connection points are requested.
+	 * @param groupId - group name
+	 * @param token - connection token received together with connection points
+	 * @param permissions - user permissions (obtained by calling corresponding method of Magistral instance)
+	 */
 	public GroupConsumer(String sKey, String bootstrapServers, String groupId, String token, List<PermMeta> permissions) {
 		this(sKey, bootstrapServers, groupId, token, null, permissions);
 	}
 
-	public GroupConsumer(String sKey, String bootstrapServers, String groupId, String token, Cipher _cipher, List<PermMeta> permissions) {
+	/**
+	 * Creates group consumer instance to listen and decipher incoming messages 
+	 * 
+	 * @param subKey - subscription key, provided on creation of Magistral instance
+	 * @param bootstrapServers - string of comma-separated addresses of servers ([IP]:[PORT],[IP]:[PORT] ...) received when connection points are requested.
+	 * @param groupId - group name
+	 * @param token - connection token received together with connection points
+	 * @param _cipher - AES-key to decipher incoming messages with
+	 * @param permissions - user permissions (obtained by calling corresponding method of Magistral instance)
+	 */
+	public GroupConsumer(String subKey, String bootstrapServers, String groupId, String token, Cipher _cipher, List<PermMeta> permissions) {
 		this.group = groupId;
-		this.subKey = sKey;
+		this.subKey = subKey;
 		
 		consumer = new KafkaConsumer<byte[], byte[]>(createConsumerConfig(bootstrapServers, groupId, token));
 		this.cipher = _cipher;
@@ -97,19 +116,31 @@ public class GroupConsumer implements Runnable {
          consumer.wakeup();
 	}	
 
-	public void subscribe(String topic, int channel, NetworkListener callback) throws MagistralException {
-		if (channel < -1) return;
+	/**
+	 * <p>Subscribes to specific topic and channel(s).</p>
+	 * <p>If <b>channel</b> parameter is negative than subscription will be made to all channels user has permissions to listen.</p>
+	 * 
+	 * @param topic - topic name
+	 * @param channel - channel to subscribe to (if negative -> all user has <i>read</i>-permissions to listen)
+	 * @param listener - callback parameter, triggered on message received or network action
+	 * @throws MagistralException
+	 */
+	public void subscribe(String topic, int channel, NetworkListener listener) throws MagistralException {
+		
+		if (channel < -1) channel = -1;
 		
 		String etopic = subKey + "." + topic;
 		
 		List<PartitionInfo> pif = consumer.partitionsFor(etopic);
-		if (pif == null || pif.isEmpty() || channel >= pif.size()) {
+		if (pif == null || pif.isEmpty()) {
 			
 			Map<String, List<PartitionInfo>> ltis = consumer.listTopics();
 			if (ltis == null || !ltis.keySet().contains(etopic)) {
 				MagistralException mex = new MagistralException("Topic [" + topic + "] does not exist.");
-				callback.error(mex);
+				listener.error(mex);
 				throw mex;
+			} else {
+				pif = ltis.get(etopic);
 			}
 		}
 		
@@ -120,26 +151,17 @@ public class GroupConsumer implements Runnable {
 			channels.add(channel);
 		}
 		
-		subscribe(topic, channels, callback);
+		subscribe(topic, channels, pif, listener);
 	}
 	
-	public void subscribe(String topic, Collection<Integer> channels, NetworkListener callback) throws MagistralException {		
+	private void subscribe(String topic, Collection<Integer> channels, List<PartitionInfo> pif, NetworkListener callback) throws MagistralException {		
 		if (channels == null || channels.size() == 0) return;
 				
 		if (channels.size() > 1 && channels.contains(-1)) channels.remove(-1);
 		
-		String etopic = subKey + "." + topic;
+		Set<Integer> copy = new HashSet<>(channels);
 		
-		List<PartitionInfo> pis = consumer.partitionsFor(etopic);
-		if (pis == null || pis.size() == 0) {
-			
-			Map<String, List<PartitionInfo>> ltis = consumer.listTopics();
-			if (ltis == null || !ltis.keySet().contains(etopic)) {
-				MagistralException mex = new MagistralException("Topic [" + topic + "] does not exist.");
-				callback.error(mex);
-				throw mex;
-			}
-		}
+		String etopic = subKey + "." + topic;
 				
 		System.out.println("Subscribe -> " + topic + ":" + channels + " // " + subKey);
 		
@@ -150,19 +172,20 @@ public class GroupConsumer implements Runnable {
 			throw mex;
 		}
 		
+		Map<Integer, Boolean> rchps = new HashMap<>(pif.size());
 		for (PermMeta pm : permissions) {
 			if (!pm.topic().equals(topic)) continue;			
 			
-			for (Iterator<Integer> it = channels.iterator(); it.hasNext();) {
-				int ch = it.next();
-				if (!pm.channels().contains(ch) || !pm.readable(ch)) it.remove();
-			}
+			for (int ch : pm.channels()) rchps.put(ch, pm.readable(ch));
 		}
 		
-		String npgex = "No permissions for topic [" + topic + "] granted";
+		for (Iterator<Integer> it = channels.iterator(); it.hasNext();) {
+			int ch = it.next();
+			if (!rchps.containsKey(ch) || rchps.get(ch) == false) it.remove();
+		}
 		
 		if (channels.isEmpty()) {
-			MagistralException mex = new MagistralException(npgex);
+			MagistralException mex = new MagistralException("No READ permissions for topic [" + topic + "] and channels " + copy + " granted");
 			mex.printStackTrace();
 			callback.error(mex);
 			throw mex;
