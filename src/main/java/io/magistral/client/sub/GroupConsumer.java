@@ -55,7 +55,7 @@ public class GroupConsumer implements Runnable {
 		props.put("heartbeat.interval.ms", "2000");		
 		props.put("metadata.max.age.ms", "180000");
 		
-		props.put("enable.auto.commit", "false");
+		props.put("enable.auto.commit", "true");
 		props.put("auto.commit.interval.ms", "2000");
 		props.put("max.poll.records", "250");
 		
@@ -225,8 +225,6 @@ public class GroupConsumer implements Runnable {
 				for (ConsumerRecord<byte[], byte[]> record : records) {							
 					handle(record);
 				}
-				
-				consumer.commitAsync();
 			}
 		} catch(Exception ex) {
 			ex.printStackTrace();

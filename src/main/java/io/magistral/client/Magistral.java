@@ -10,7 +10,6 @@ import java.security.SecureRandom;
 import java.util.*;
 import java.util.AbstractMap.SimpleEntry;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
@@ -117,7 +116,7 @@ public class Magistral implements IMagistral {
 			throw new IllegalArgumentException("Minimal length of cipher key is 16 symbols!");
 		}
 		
-		if (cipher != null && cipher.length() > 16) cipher = cipher.substring(0, 15);
+		if (cipher != null && cipher.length() > 16) cipher = cipher.substring(0, 16);
 		
 		String home = System.getProperty("user.home");
 		
