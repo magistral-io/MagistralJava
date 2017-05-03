@@ -56,12 +56,13 @@ public class GroupConsumer implements Runnable {
 		props.put("metadata.max.age.ms", "180000");
 		
 		props.put("enable.auto.commit", "true");
-		props.put("auto.commit.interval.ms", "2000");
-		props.put("max.poll.records", "250");
+		props.put("auto.commit.interval.ms", "5000");
+		
+		props.put("max.poll.records", "200");
 		
 		props.put("session.timeout.ms", "20000");
 		props.put("fetch.min.bytes", "64");
-		props.put("fetch.max.wait.ms", "96");		
+		props.put("fetch.max.wait.ms", "178");		
 		props.put("max.partition.fetch.bytes", "65565");
 		
 		props.put("key.deserializer", "org.apache.kafka.common.serialization.ByteArrayDeserializer");
@@ -219,7 +220,7 @@ public class GroupConsumer implements Runnable {
 	public void run() {		
 		try {			
 			while (isAlive.get()) {			
-				ConsumerRecords<byte[], byte[]> records = consumer.poll(128);
+				ConsumerRecords<byte[], byte[]> records = consumer.poll(200);
 				if (records.count() == 0) continue;
 				
 				for (ConsumerRecord<byte[], byte[]> record : records) {							

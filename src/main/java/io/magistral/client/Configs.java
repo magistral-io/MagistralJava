@@ -17,7 +17,7 @@ public class Configs {
 		producer.put("max.in.flight.requests.per.connection", 3);
 				
 		producer.put("key.serializer", "org.apache.kafka.common.serialization.StringSerializer");
-		producer.put("value.serializer", "org.apache.kafka.common.serialization.ByteArrayDeserializer");
+		producer.put("value.serializer", "org.apache.kafka.common.serialization.ByteArraySerializer");
 		producer.put("compression.type", "gzip");
 	}
 

@@ -28,7 +28,7 @@ public class MagistralConsumer {
 		
 		props.put("fetch.min.bytes", "64");
 		props.put("max.partition.fetch.bytes", "65565");
-		props.put("fetch.max.wait.ms", "96");
+		props.put("fetch.max.wait.ms", "176");
 		props.put("key.deserializer", "org.apache.kafka.common.serialization.ByteArrayDeserializer");
 		props.put("value.deserializer", "org.apache.kafka.common.serialization.ByteArrayDeserializer");
 		
@@ -67,7 +67,7 @@ public class MagistralConsumer {
 			TopicPartition x = new TopicPartition(subKey + "." + topic, channel);
 			
 			props.put("fetch.min.bytes", "64");	
-			props.put("fetch.max.wait.ms", "192");	
+			props.put("fetch.max.wait.ms", "176");	
 			
 			consumer = new KafkaConsumer<>(props);			
 			consumer.assign(Arrays.asList(x));
@@ -75,14 +75,13 @@ public class MagistralConsumer {
 			Map<TopicPartition, Long> offsets = consumer.endOffsets(consumer.assignment());			
 			
 			long last = offsets.get(x);			
-			long pos = (last - records < 0) ? 0 : (last - records);
+			long pos = (last - records < 0) ? consumer.beginningOffsets(consumer.assignment()).get(x) : (last - records);
 			
 			consumer.seek(x, pos);
 			ConsumerRecords<byte[], byte[]> data = consumer.poll(200);
 			
 			spitz : while (!data.isEmpty() && out.size() < records) {
-				for (ConsumerRecord<byte[], byte[]> r : data) {	
-					
+				for (ConsumerRecord<byte[], byte[]> r : data) {
 					if (out.size() >= records) break spitz;
 					
 					Message m = new Message();
@@ -118,7 +117,7 @@ public class MagistralConsumer {
 			TopicPartition x = new TopicPartition(subKey + "." + topic, channel);
 						
 			props.put("fetch.min.bytes", "64");
-			props.put("fetch.max.wait.ms", "192");
+			props.put("fetch.max.wait.ms", "176");
 			
 			props.put("max.partition.fetch.bytes", "65565"); // TODO adjust with AVGs
 			
@@ -130,7 +129,7 @@ public class MagistralConsumer {
 			Map<TopicPartition, Long> offsets = consumer.endOffsets(consumer.assignment());			
 			long last = offsets.get(x);
 			
-			long position = last - count < 0 ? 0 : last - count;
+			long position = last - count < 0 ? consumer.beginningOffsets(consumer.assignment()).get(x) : last - count;
 			
 			while (!found) {				
 				consumer.seek(x, position);
@@ -194,7 +193,7 @@ public class MagistralConsumer {
 			TopicPartition x = new TopicPartition(subKey + "." + topic, channel);
 						
 			props.put("fetch.min.bytes", "64");
-			props.put("fetch.max.wait.ms", "192");			
+			props.put("fetch.max.wait.ms", "176");			
 			props.put("max.partition.fetch.bytes", "65565");
 			
 			consumer = new KafkaConsumer<>(props);
@@ -206,7 +205,7 @@ public class MagistralConsumer {
 			Map<TopicPartition, Long> offsets = consumer.endOffsets(consumer.assignment());			
 			long last = offsets.get(x);
 			
-			long position = last - hop < 0 ? 0 : last - hop;
+			long position = last - hop < 0 ? consumer.beginningOffsets(consumer.assignment()).get(x) : last - hop;
 			
 			while (!found) {
 				consumer.seek(x, position);
