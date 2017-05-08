@@ -72,13 +72,17 @@ public class MagistralConsumer {
 			consumer = new KafkaConsumer<>(props);			
 			consumer.assign(Arrays.asList(x));
 			
-			Map<TopicPartition, Long> offsets = consumer.endOffsets(consumer.assignment());			
+			Map<TopicPartition, Long> offsets = consumer.endOffsets(consumer.assignment());
+			Map<TopicPartition, Long> bOffsets = consumer.beginningOffsets(consumer.assignment());
 			
-			long last = offsets.get(x);			
-			long pos = (last - records < 0) ? consumer.beginningOffsets(consumer.assignment()).get(x) : (last - records);
+			long last = offsets.get(x);
+			long begin = bOffsets.get(x);			
+			long back = last - records;
+			
+			long pos = (back < 0) ? begin : (back < begin ? begin : back);
 			
 			consumer.seek(x, pos);
-			ConsumerRecords<byte[], byte[]> data = consumer.poll(200);
+			ConsumerRecords<byte[], byte[]> data = consumer.poll(255);
 			
 			spitz : while (!data.isEmpty() && out.size() < records) {
 				for (ConsumerRecord<byte[], byte[]> r : data) {
@@ -124,42 +128,51 @@ public class MagistralConsumer {
 			consumer = new KafkaConsumer<>(props);
 			consumer.assign(Arrays.asList(x));
 			
+			int hop = 500;
 			boolean found = false;
 			
 			Map<TopicPartition, Long> offsets = consumer.endOffsets(consumer.assignment());			
-			long last = offsets.get(x);
+			Map<TopicPartition, Long> bOffsets = consumer.beginningOffsets(consumer.assignment());
 			
-			long position = last - count < 0 ? consumer.beginningOffsets(consumer.assignment()).get(x) : last - count;
+			long last = offsets.get(x);
+			long begin = bOffsets.get(x);			
+			
+			long back = last - hop;
+			if (back < begin) back = begin;
+			
+			long pos = (back < 0) ? begin : (back < begin ? begin : back);
 			
 			while (!found) {				
-				consumer.seek(x, position);
+				consumer.seek(x, pos);
 				ConsumerRecords<byte[], byte[]> data = consumer.poll(200);
 				
 				if (data.count() == 0) break;
 				ConsumerRecord<byte[], byte[]> r = data.iterator().next();
 				
 				if (r.timestamp() <= start) {
-					position = r.offset(); found = true;				
+					pos = r.offset(); found = true; break;				
 				}
-				if (position == 0) break;
+				
+				if (pos == 0 || pos < begin) {
+					pos = begin;
+					break;
+				}
+				
+				long d = pos - hop;				
+				pos = d < begin ? begin : d;
 			}
-
-			consumer.close();
 			
-			consumer = new KafkaConsumer<>(props);
-			consumer.assign(Arrays.asList(x));
-			
-			consumer.seek(x, position);
+			consumer.seek(x, pos);
 			
 			int counter = 0;
 			
-			ConsumerRecords<byte[], byte[]> data = consumer.poll(200);
+			ConsumerRecords<byte[], byte[]> data = consumer.poll(255);
 			spitz : while (!data.isEmpty() && counter < count) {
 				
 				for (ConsumerRecord<byte[], byte[]> r : data) {
 					
 					if (r.timestamp() <= start) continue;
-					if (out.size() >= counter) break spitz;
+					if (out.size() >= count) break spitz;
 					
 					Message m = new Message();
 					m.setTopic(topic);
@@ -171,7 +184,7 @@ public class MagistralConsumer {
 					counter++;
 				}
 				
-				data = consumer.poll(200);
+				data = consumer.poll(255);
 			}
 			
 			return out;
@@ -199,54 +212,60 @@ public class MagistralConsumer {
 			consumer = new KafkaConsumer<>(props);
 			consumer.assign(Arrays.asList(x));
 			
+			int hop = 500;
 			boolean found = false;
-			int hop = 1000;
 			
 			Map<TopicPartition, Long> offsets = consumer.endOffsets(consumer.assignment());			
+			Map<TopicPartition, Long> bOffsets = consumer.beginningOffsets(consumer.assignment());
+			
 			long last = offsets.get(x);
+			long begin = bOffsets.get(x);			
 			
-			long position = last - hop < 0 ? consumer.beginningOffsets(consumer.assignment()).get(x) : last - hop;
+			long back = last - hop;
+			if (back < begin) back = begin;
 			
-			while (!found) {
-				consumer.seek(x, position);
+			long pos = (back < 0) ? begin : (back < begin ? begin : back);
+			
+			while (!found) {				
+				consumer.seek(x, pos);
 				ConsumerRecords<byte[], byte[]> data = consumer.poll(200);
 				
 				if (data.count() == 0) break;
 				ConsumerRecord<byte[], byte[]> r = data.iterator().next();
-			
-				if (r.timestamp() < start) {
-					position = r.offset(); found = true;
+				
+				if (r.timestamp() <= start) {
+					pos = r.offset(); found = true; break;				
 				}
 				
-				if (position == 0) break;				
-				position =- hop;
+				if (pos == 0 || pos < begin) {
+					pos = begin;
+					break;
+				}
+				
+				long d = pos - hop;				
+				pos = d < begin ? begin : d;
 			}
-			consumer.close();
 			
+			consumer.seek(x, pos);
 			
-			consumer = new KafkaConsumer<>(props);
-			consumer.assign(Arrays.asList(x));
-			
-			consumer.seek(x, position);
-			
-			ConsumerRecords<byte[], byte[]> data = consumer.poll(200);						
-			spitz : while (!data.isEmpty()) {
+			ConsumerRecords<byte[], byte[]> data = consumer.poll(255);
+			spitz : while (!data.isEmpty() && out.size() < HISTORY_DATA_FETCH_SIZE_LIMIT) {
 				
 				for (ConsumerRecord<byte[], byte[]> r : data) {
 					
 					if (r.timestamp() <= start) continue;
-					if (r.timestamp() >= end || out.size() == HISTORY_DATA_FETCH_SIZE_LIMIT) break spitz;
+					if (r.timestamp() > end || out.size() >= HISTORY_DATA_FETCH_SIZE_LIMIT) break spitz;
 					
 					Message m = new Message();
 					m.setTopic(topic);
 					m.setIndex(r.offset());
 					m.setChannel(r.partition());
 					m.setTimestamp(r.timestamp());					
-					m.setBody(cipher != null ? cipher.doFinal(Base64.getDecoder().decode(r.value())) : r.value());
+					m.setBody(cipher != null ? cipher.doFinal(Base64.getDecoder().decode(r.value())) : r.value());					
 					out.add(m);
 				}
 				
-				data = consumer.poll(200);
+				data = consumer.poll(255);
 			}
 			
 			return out;

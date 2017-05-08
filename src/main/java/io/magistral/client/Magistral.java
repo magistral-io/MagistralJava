@@ -1192,8 +1192,11 @@ public class Magistral implements IMagistral {
 		}
 		
 		try {
-			Cipher dCipher = Cipher.getInstance("AES/ECB/NoPadding");
-			dCipher.init(Cipher.DECRYPT_MODE, aesKey);
+			Cipher dCipher = null;
+			if (aesKey != null) {
+				dCipher = Cipher.getInstance("AES/ECB/NoPadding");
+				dCipher.init(Cipher.DECRYPT_MODE, aesKey);
+			}
 			
 			List<Message> messages = new ArrayList<>();		
 			for (Properties properties : settings.get("sub")) {
