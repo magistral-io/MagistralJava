@@ -45,7 +45,7 @@ public class Magistral implements IMagistral {
 	
 	private Logger logger = LoggerFactory.getLogger(Magistral.class);
 	
-	private String mqttBrokerAdrress = "ssl://app.magistral.io:8883";
+	private SimpleEntry<String, Integer> destination = new SimpleEntry<String, Integer>("app.magistral.io", 443);
 	
 	private final static String UUID_REGEX 		= "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";	
 	private final static String PUB_KEY_REGEX 	= "pub-" + UUID_REGEX;
@@ -87,18 +87,35 @@ public class Magistral implements IMagistral {
 	 * @param secretKey - secret (API) key
 	 */
 	public Magistral(String pubKey, String subKey, String secretKey) {
-		this(pubKey, subKey, secretKey, null);
+		this("app.magistral.io", 443, pubKey, subKey, secretKey, null);
 	}
 	
 	/**
 	 * Creates Magistral instance
 	 * 
+	 * @param host - host address
 	 * @param pubKey - publish key
 	 * @param subKey - subscribe key
 	 * @param secretKey - secret (API) key
 	 * @param cipher - AES-key to (de)cipher message bodies with
 	 */
 	public Magistral(String pubKey, String subKey, String secretKey, String cipher) {
+		this("app.magistral.io", 443, pubKey, subKey, secretKey, cipher);
+	}
+	
+	/**
+	 * Creates Magistral instance
+	 * 
+	 * @param host - host address
+	 * @param port - host port
+	 * @param pubKey - publish key
+	 * @param subKey - subscribe key
+	 * @param secretKey - secret (API) key
+	 * @param cipher - AES-key to (de)cipher message bodies with
+	 */
+	public Magistral(String host, int port, String pubKey, String subKey, String secretKey, String cipher) {
+		
+		destination = new SimpleEntry<String, Integer>(host, port);
 		
 		if (pubKey == null || !pubKey.matches(PUB_KEY_REGEX)) {
 			throw new IllegalArgumentException("Publish key is not provided or has invalid format!");
@@ -130,7 +147,7 @@ public class Magistral implements IMagistral {
 		this.clientId = secretKey;
 		
 		try {
-			settings = REST.instance.getConnectionSettings(pubKey, subKey, secretKey, true);
+			settings = REST.instance.getConnectionSettings(host, port, pubKey, subKey, secretKey, true);
 		} catch (MagistralException me) {
 			me.printStackTrace();
 			System.exit(0);
@@ -169,6 +186,9 @@ public class Magistral implements IMagistral {
 				pM.put(token, p);
 				
 //				<MQTT>
+				
+				String mqttBrokerAdrress = "ssl://" + host + ":8883";
+				
 				MqttClient mqtt = new MqttClient(mqttBrokerAdrress, token, new MemoryPersistence());
 				final MqttConnectOptions connOpts = new MqttConnectOptions();
 				connOpts.setUserName(pubKey);
@@ -216,12 +236,13 @@ public class Magistral implements IMagistral {
 				});
 				
 				mqtt.subscribe("exceptions");						
-				mqtt.publish("presence/" + pubKey + "/" + token, new byte[] { 1 }, 1, true);						
+				mqtt.publish("presence/" + pubKey + "/" + token, new byte[] { 1 }, 1, true);
+				
 //				<MQTT/>
 
 				mqttMap.put(token, mqtt);
 				
-				permissions.addAll(REST.instance.permissions(pubKey, subKey, secretKey, null));
+				permissions.addAll(REST.instance.permissions(destination.getKey(), destination.getValue(), pubKey, subKey, secretKey, null));
 			}
 				        
 		} catch (MqttException e) {					
@@ -609,7 +630,7 @@ public class Magistral implements IMagistral {
 	 */
 	public Future<List<PermMeta>> permissions() throws MagistralException {		
 		CompletableFuture<List<PermMeta>> future = new CompletableFuture<List<PermMeta>>();
-		List<PermMeta> perms = REST.instance.permissions(pubKey, subKey, secretKey, null);		
+		List<PermMeta> perms = REST.instance.permissions(destination.getKey(), destination.getValue(), pubKey, subKey, secretKey, null);		
 		future.complete(perms);	
 		return future;
 	}
@@ -631,7 +652,7 @@ public class Magistral implements IMagistral {
 	 */
 	public Future<List<PermMeta>> permissions(io.magistral.client.perm.Callback callback) throws MagistralException {		
 		CompletableFuture<List<PermMeta>> future = new CompletableFuture<List<PermMeta>>();
-		List<PermMeta> perms = REST.instance.permissions(pubKey, subKey, secretKey, null);		
+		List<PermMeta> perms = REST.instance.permissions(destination.getKey(), destination.getValue(), pubKey, subKey, secretKey, null);		
 		future.complete(perms);
 		if (callback != null) callback.success(perms);		
 		return future;
@@ -645,7 +666,7 @@ public class Magistral implements IMagistral {
 	 */
 	public Future<List<PermMeta>> permissions(String topic, io.magistral.client.perm.Callback callback) throws MagistralException {
 		CompletableFuture<List<PermMeta>> future = new CompletableFuture<List<PermMeta>>();
-		List<PermMeta> perms = REST.instance.permissions(pubKey, subKey, secretKey, topic);		
+		List<PermMeta> perms = REST.instance.permissions(destination.getKey(), destination.getValue(), pubKey, subKey, secretKey, topic);		
 		future.complete(perms);
 		if (callback != null) callback.success(perms);
 		return future;
@@ -720,7 +741,7 @@ public class Magistral implements IMagistral {
 	public Future<List<PermMeta>> grant(String user, String topic, boolean read, boolean write, io.magistral.client.perm.Callback callback) throws MagistralException {
 		try {
 			CompletableFuture<List<PermMeta>> future = new CompletableFuture<List<PermMeta>>();
-			List<PermMeta> perms = REST.instance.grant(pubKey, subKey, secretKey, user, topic, null, null, read, write);
+			List<PermMeta> perms = REST.instance.grant(destination.getKey(), destination.getValue(), pubKey, subKey, secretKey, user, topic, null, null, read, write);
 			if (callback != null) callback.success(perms);
 			future.complete(perms);	
 			return future;
@@ -744,7 +765,7 @@ public class Magistral implements IMagistral {
 	public Future<List<PermMeta>> grant(String user, String topic, boolean read, boolean write, int ttl, io.magistral.client.perm.Callback callback) throws MagistralException {
 		try {
 			CompletableFuture<List<PermMeta>> future = new CompletableFuture<List<PermMeta>>();
-			List<PermMeta> perms = REST.instance.grant(pubKey, subKey, secretKey, user, topic, null, ttl, read, write);
+			List<PermMeta> perms = REST.instance.grant(destination.getKey(), destination.getValue(), pubKey, subKey, secretKey, user, topic, null, ttl, read, write);
 			if (callback != null) callback.success(perms);
 			future.complete(perms);	
 			return future;
@@ -768,7 +789,7 @@ public class Magistral implements IMagistral {
 	public Future<List<PermMeta>> grant(String user, String topic, int channel, boolean read, boolean write, io.magistral.client.perm.Callback callback) throws MagistralException {
 		try {
 			CompletableFuture<List<PermMeta>> future = new CompletableFuture<List<PermMeta>>();
-			List<PermMeta> perms = REST.instance.grant(pubKey, subKey, secretKey, user, topic, channel, null, read, write);
+			List<PermMeta> perms = REST.instance.grant(destination.getKey(), destination.getValue(), pubKey, subKey, secretKey, user, topic, channel, null, read, write);
 			if (callback != null) callback.success(perms);
 			future.complete(perms);	
 			return future;
@@ -793,7 +814,7 @@ public class Magistral implements IMagistral {
 	public Future<List<PermMeta>> grant(String user, String topic, int channel, boolean read, boolean write, int ttl, io.magistral.client.perm.Callback callback) throws MagistralException {
 		try {
 			CompletableFuture<List<PermMeta>> future = new CompletableFuture<List<PermMeta>>();
-			List<PermMeta> perms = REST.instance.grant(pubKey, subKey, secretKey, user, topic, channel, ttl, read, write);
+			List<PermMeta> perms = REST.instance.grant(destination.getKey(), destination.getValue(), pubKey, subKey, secretKey, user, topic, channel, ttl, read, write);
 			if (callback != null) callback.success(perms);
 			future.complete(perms);	
 			return future;
@@ -812,7 +833,7 @@ public class Magistral implements IMagistral {
 	 */
 	public Future<List<PermMeta>> revoke(String user, String topic) throws MagistralException {		
 		CompletableFuture<List<PermMeta>> future = new CompletableFuture<List<PermMeta>>();
-		List<PermMeta> perms =  REST.instance.revoke(pubKey, subKey, secretKey, user, topic, null);
+		List<PermMeta> perms =  REST.instance.revoke(destination.getKey(), destination.getValue(), pubKey, subKey, secretKey, user, topic, null);
 		future.complete(perms);	
 		return future;
 	}
@@ -827,7 +848,7 @@ public class Magistral implements IMagistral {
 	 */
 	public Future<List<PermMeta>> revoke(String user, String topic, int channel) throws MagistralException {
 		CompletableFuture<List<PermMeta>> future = new CompletableFuture<List<PermMeta>>();
-		List<PermMeta> perms =  REST.instance.revoke(pubKey, subKey, secretKey, user, topic, channel);
+		List<PermMeta> perms =  REST.instance.revoke(destination.getKey(), destination.getValue(), pubKey, subKey, secretKey, user, topic, channel);
 		future.complete(perms);	
 		return future;
 	}
@@ -842,7 +863,7 @@ public class Magistral implements IMagistral {
 	 */
 	public Future<List<PermMeta>> revoke(String user, String topic, io.magistral.client.perm.Callback callback) throws MagistralException {
 		CompletableFuture<List<PermMeta>> future = new CompletableFuture<List<PermMeta>>();
-		List<PermMeta> perms = REST.instance.revoke(pubKey, subKey, secretKey, user, topic, null);
+		List<PermMeta> perms = REST.instance.revoke(destination.getKey(), destination.getValue(), pubKey, subKey, secretKey, user, topic, null);
 		future.complete(perms);	
 		return future;
 	}
@@ -858,7 +879,7 @@ public class Magistral implements IMagistral {
 	 */
 	public Future<List<PermMeta>> revoke(String user, String topic, int channel, io.magistral.client.perm.Callback callback) throws MagistralException {
 		CompletableFuture<List<PermMeta>> future = new CompletableFuture<List<PermMeta>>();
-		List<PermMeta> perms = REST.instance.revoke(pubKey, subKey, secretKey, user, topic, channel);
+		List<PermMeta> perms = REST.instance.revoke(destination.getKey(), destination.getValue(), pubKey, subKey, secretKey, user, topic, channel);
 		future.complete(perms);	
 		return future;
 	}

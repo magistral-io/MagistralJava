@@ -4,9 +4,6 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.nio.file.FileSystems;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.*;
 import java.util.AbstractMap.SimpleEntry;
 
@@ -35,7 +32,8 @@ public enum REST {
 		RESTcommunicator.instance.setCredentials(user, password);
 	}
 
-	public Map<String, List<Properties>> getConnectionSettings(String pubKey, String subKey, String secretKey, boolean ssl) throws MagistralException {
+	public Map<String, List<Properties>> getConnectionSettings(String host, int port, String pubKey, String subKey, String secretKey, boolean ssl) throws MagistralException {
+		
 		Map<String, List<Properties>> out = new HashMap<>(3);
 
 		try {		
@@ -47,12 +45,10 @@ public enum REST {
 			parameters.add("subKey", subKey);
 			parameters.add("secretKey", secretKey);
 			
-			String host = "app.magistral.io";
-			
 			RESTcommunicator.instance.setCredentials(pubKey + "|" + subKey, secretKey);
 			
 			SimpleEntry<Integer, String> response = 
-					RESTcommunicator.instance.get("https://" + host + "/api/magistral/net/connectionPoints", 
+					RESTcommunicator.instance.get("https://" + host + ":" + port + "/api/magistral/net/connectionPoints", 
 							parameters, MediaType.TEXT_PLAIN, MediaType.APPLICATION_JSON);
 			
 			if (response.getKey() != 200) {
@@ -187,15 +183,13 @@ public enum REST {
 		return new ArrayList<>(permissions.values());
 	}
 	
-	public synchronized List<PermMeta> userPermissions(String pubKey, String subKey, String authKey, String userName) throws MagistralException {
+	public synchronized List<PermMeta> userPermissions(String host, int port, String pubKey, String subKey, String authKey, String userName) throws MagistralException {
 		
 		try {			
 			MultivaluedMap<String, String> parameters = new MultivaluedMapImpl();
 			if (userName != null) parameters.add("userName", userName);
-			
-			String host = "app.magistral.io";
 						
-			SimpleEntry<Integer, String> response = RESTcommunicator.instance.get("https://" + host + "/api/magistral/net/user_permissions", parameters);
+			SimpleEntry<Integer, String> response = RESTcommunicator.instance.get("https://" + host + ":" + port + "/api/magistral/net/user_permissions", parameters);
 			if (response.getKey() != 200) {
 				if (response.getKey() == 401) 
 					throw new MagistralException("Unnable to authorize user by provided keys");
@@ -209,7 +203,7 @@ public enum REST {
 		}
 	}
 	
-	public synchronized List<PermMeta> permissions(String pubKey, String subKey, String authKey, String topic) throws MagistralException {		
+	public synchronized List<PermMeta> permissions(String host, int port, String pubKey, String subKey, String authKey, String topic) throws MagistralException {		
 		Map<String, PermMeta> permissions = new HashMap<>();
 		
 		try {
@@ -219,10 +213,8 @@ public enum REST {
 			if (subKey != null) parameters.add("subKey", subKey);
 			if (authKey != null) parameters.add("authKey", authKey);
 			if (topic != null) parameters.add("topic", topic);
-			
-			String host = "app.magistral.io";
 						
-			SimpleEntry<Integer, String> response = RESTcommunicator.instance.get("https://" + host + "/api/magistral/net/permissions", parameters);
+			SimpleEntry<Integer, String> response = RESTcommunicator.instance.get("https://" + host + ":" + port + "/api/magistral/net/permissions", parameters);
 			if (response.getKey() != 200) {
 				if (response.getKey() == 401) 
 					throw new MagistralException("Unnable to authorize user by provided keys");
@@ -304,7 +296,7 @@ public enum REST {
 		return p;
 	}
 
-	public synchronized List<PermMeta> grant(String pubKey, String subKey, String secretKey, String user, String topic, Integer channel, Integer ttl, boolean read, boolean write) throws MagistralException {		
+	public synchronized List<PermMeta> grant(String host, int port, String pubKey, String subKey, String secretKey, String user, String topic, Integer channel, Integer ttl, boolean read, boolean write) throws MagistralException {		
 		try {
 			
 			MultivaluedMap<String, String> parameters = new MultivaluedMapImpl();
@@ -316,12 +308,11 @@ public enum REST {
 			
 			parameters.add("read", read + "");
 			parameters.add("write", write + "");
-			
-			String host = "app.magistral.io";
-			SimpleEntry<Integer, String> result = RESTcommunicator.instance.put("https://" + host + "/api/magistral/net/grant", parameters);
+
+			SimpleEntry<Integer, String> result = RESTcommunicator.instance.put("https://" + host + ":" + port + "/api/magistral/net/grant", parameters);
 			
 			if (result.getKey() == Status.OK.getStatusCode() || result.getKey() == Status.CREATED.getStatusCode()) 
-				return userPermissions(pubKey, subKey, secretKey, user);
+				return userPermissions(host, port, pubKey, subKey, secretKey, user);
 			else 
 				throw new MagistralException(result.getValue());
 			
@@ -330,19 +321,18 @@ public enum REST {
 		}		
 	}
 	
-	public synchronized List<PermMeta> revoke(String pubKey, String subKey, String secretKey, String user, String topic, Integer channel) throws MagistralException {		
+	public synchronized List<PermMeta> revoke(String host, int port, String pubKey, String subKey, String secretKey, String user, String topic, Integer channel) throws MagistralException {		
 		try {			
 			MultivaluedMap<String, String> parameters = new MultivaluedMapImpl();
 			
 			if (topic != null) parameters.add("topic", topic);		
 			if (user != null) parameters.add("user", user);
 			if (channel != null) parameters.add("channel", channel + "");
-						
-			String host = "app.magistral.io";
-			SimpleEntry<Integer, String> result = RESTcommunicator.instance.delete("https://" + host + "/api/magistral/net/revoke", parameters);
+
+			SimpleEntry<Integer, String> result = RESTcommunicator.instance.delete("https://" + host + ":" + port + "/api/magistral/net/revoke", parameters);
 						
 			if (result.getKey() == Status.OK.getStatusCode()) 
-				return userPermissions(pubKey, subKey, secretKey, user);
+				return userPermissions(host, port, pubKey, subKey, secretKey, user);
 			else 
 				throw new MagistralException(result.getValue());
 		} catch (Exception e) {
